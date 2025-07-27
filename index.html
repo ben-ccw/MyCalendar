@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>農曆及香港假期日曆</title>
+    <title>農曆及香港假期日曆 (離線版)</title>
     
     <!-- 引入 Tailwind CSS 以實現現代化及響應式設計 -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -55,18 +55,6 @@
         }
         .today { border: 2px solid #3b82f6 !important; background-color: #eff6ff !important; }
         .other-month { color: #9ca3af; background-color: #f9fafb; }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-radius: 50%;
-            border-top: 4px solid #3498db;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
         #notification, #tooltip { transition: opacity 0.3s, transform 0.3s; z-index: 9999; }
         #calendar-container { display: grid; gap: 1.5rem; }
         #settings-modal { transition: opacity 0.3s; }
@@ -86,7 +74,6 @@
         <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
             <div class="flex items-center gap-4">
                 <h1 id="calendar-title" class="text-2xl md:text-3xl font-bold text-gray-900"></h1>
-                <div id="loader" class="loader hidden"></div>
             </div>
             
             <div class="flex items-center gap-2 sm:gap-3">
@@ -156,27 +143,44 @@
             </div>
 
             <div class="mt-8 pt-4 border-t">
-                <div class="flex justify-between items-center text-xs text-gray-500 mb-4">
-                    <span id="last-updated-info"></span>
-                    <button id="refresh-holidays" class="font-medium text-blue-600 hover:text-blue-800 hover:underline">更新</button>
-                </div>
-                <button id="confirm-settings-btn" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">確定</button>
+                 <p id="data-range-info" class="text-xs text-gray-400 text-center"></p>
+                <button id="confirm-settings-btn" class="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">確定</button>
             </div>
         </div>
     </div>
 
 
     <script>
+        // ===================================================================================
+        // === 假期資料來源 (Holiday Data Source) ===
+        // ===================================================================================
+        // AI 指示: 若要新增假期資料，請在此處的 `HOLIDAY_DATA_SOURCE` 陣列中，仿照現有格式加入一個新的年份物件。
+        // AI INSTRUCTION: To add new holiday data, add a new year object to the `HOLIDAY_DATA_SOURCE` array below, following the existing format.
+        // 格式 (Format): { year: YYYY, data: { "YYYY-MM-DD": "假期名稱", ... } }
+        //
+        const HOLIDAY_DATA_SOURCE = [
+            { year: 2018, data: { "2018-01-01": "一月一日", "2018-02-16": "農曆年初一", "2018-02-17": "農曆年初二", "2018-02-19": "農曆年初四", "2018-03-30": "耶穌受難節", "2018-03-31": "耶穌受難節翌日", "2018-04-02": "復活節星期一", "2018-04-05": "清明節", "2018-05-01": "勞動節", "2018-05-22": "佛誕", "2018-06-18": "端午節", "2018-07-02": "香港特別行政區成立紀念日翌日", "2018-09-25": "中秋節翌日", "2018-10-01": "國慶日", "2018-10-17": "重陽節", "2018-12-25": "聖誕節", "2018-12-26": "聖誕節後第一個周日" }},
+            { year: 2019, data: { "2019-01-01": "一月一日", "2019-02-05": "農曆年初一", "2019-02-06": "農曆年初二", "2019-02-07": "農曆年初三", "2019-04-05": "清明節", "2019-04-19": "耶穌受難節", "2019-04-20": "耶穌受難節翌日", "2019-04-22": "復活節星期一", "2019-05-01": "勞動節", "2019-05-13": "佛誕翌日", "2019-06-07": "端午節", "2019-07-01": "香港特別行政區成立紀念日", "2019-09-14": "中秋節翌日", "2019-10-01": "國慶日", "2019-10-07": "重陽節", "2019-12-25": "聖誕節", "2019-12-26": "聖誕節後第一個周日" }},
+            { year: 2020, data: { "2020-01-01": "一月一日", "2020-01-25": "農曆年初一", "2020-01-27": "農曆年初三", "2020-01-28": "農曆年初四", "2020-04-04": "清明節", "2020-04-10": "耶穌受難節", "2020-04-11": "耶穌受難節翌日", "2020-04-13": "復活節星期一", "2020-04-30": "佛誕", "2020-05-01": "勞動節", "2020-06-25": "端午節", "2020-07-01": "香港特別行政區成立紀念日", "2020-10-01": "國慶日", "2020-10-02": "中秋節翌日", "2020-10-26": "重陽節翌日", "2020-12-25": "聖誕節" }},
+            { year: 2021, data: { "2021-01-01": "一月一日", "2021-02-12": "農曆年初一", "2021-02-13": "農曆年初二", "2021-02-15": "農曆年初四", "2021-04-02": "耶穌受難節", "2021-04-03": "耶穌受難節翌日", "2021-04-05": "復活節星期一", "2021-04-06": "清明節翌日", "2021-05-01": "勞動節", "2021-05-19": "佛誕", "2021-06-14": "端午節", "2021-07-01": "香港特別行政區成立紀念日", "2021-09-22": "中秋節翌日", "2021-10-01": "國慶日", "2021-10-14": "重陽節", "2021-12-25": "聖誕節", "2021-12-27": "聖誕節後第一個周日" }},
+            { year: 2022, data: { "2022-01-01": "一月一日", "2022-02-01": "農曆年初一", "2022-02-02": "農曆年初二", "2022-02-03": "農曆年初三", "2022-04-05": "清明節", "2022-04-15": "耶穌受難節", "2022-04-16": "耶穌受難節翌日", "2022-04-18": "復活節星期一", "2022-05-02": "勞動節翌日", "2022-05-09": "佛誕翌日", "2022-06-03": "端午節", "2022-07-01": "香港特別行政區成立紀念日", "2022-09-12": "中秋節翌日", "2022-10-01": "國慶日", "2022-10-04": "重陽節", "2022-12-26": "聖誕節後第一個周日", "2022-12-27": "聖誕節後第二個周日" }},
+            { year: 2023, data: { "2023-01-02": "一月一日翌日", "2023-01-23": "農曆年初二", "2023-01-24": "農曆年初三", "2023-01-25": "農曆年初四", "2023-04-05": "清明節", "2023-04-07": "耶穌受難節", "2023-04-08": "耶穌受難節翌日", "2023-04-10": "復活節星期一", "2023-05-01": "勞動節", "2023-05-26": "佛誕", "2023-06-22": "端午節", "2023-07-01": "香港特別行政區成立紀念日", "2023-09-30": "中秋節翌日", "2023-10-02": "國慶日翌日", "2023-10-23": "重陽節", "2023-12-25": "聖誕節", "2023-12-26": "聖誕節後第一個周日" }},
+            { year: 2024, data: { "2024-01-01": "一月一日", "2024-02-10": "農曆年初一", "2024-02-12": "農曆年初三", "2024-02-13": "農曆年初四", "2024-03-29": "耶穌受難節", "2024-03-30": "耶穌受難節翌日", "2024-04-01": "復活節星期一", "2024-04-04": "清明節", "2024-05-01": "勞動節", "2024-05-15": "佛誕", "2024-06-10": "端午節", "2024-07-01": "香港特別行政區成立紀念日", "2024-09-18": "中秋節翌日", "2024-10-01": "國慶日", "2024-10-11": "重陽節", "2024-12-25": "聖誕節", "2024-12-26": "聖誕節後第一個周日" }},
+            { year: 2025, data: { "2025-01-01": "一月一日", "2025-01-29": "農曆年初一", "2025-01-30": "農曆年初二", "2025-01-31": "農曆年初三", "2025-04-04": "清明節", "2025-04-18": "耶穌受難節", "2025-04-19": "耶穌受難節翌日", "2025-04-21": "復活節星期一", "2025-05-01": "勞動節", "2025-05-05": "佛誕", "2025-05-31": "端午節", "2025-07-01": "香港特別行政區成立紀念日", "2025-10-01": "國慶日", "2025-10-07": "中秋節翌日", "2025-10-29": "重陽節", "2025-12-25": "聖誕節", "2025-12-26": "聖誕節後第一個周日" }},
+            { year: 2026, data: { "2026-01-01": "一月一日", "2026-02-17": "農曆年初一", "2026-02-18": "農曆年初二", "2026-02-19": "農曆年初三", "2026-04-03": "耶穌受難節", "2026-04-04": "耶穌受難節翌日", "2026-04-06": "復活節星期一", "2026-05-01": "勞動節", "2026-05-25": "佛誕", "2026-06-19": "端午節", "2026-07-01": "香港特別行政區成立紀念日", "2026-09-26": "中秋節翌日", "2026-10-01": "國慶日", "2026-10-19": "重陽節", "2026-12-25": "聖誕節", "2026-12-26": "聖誕節後第一個周日" }}
+        ];
+        // ===================================================================================
+        // === 程式碼邏輯開始 (Application Logic Starts) ===
+        // ===================================================================================
+
         // --- 全域狀態和設定 ---
         let currentDate = new Date();
-        let currentView = 'year'; // *** 修改: 預設檢視改為 '年'
+        let currentView = 'year';
         let forcedColumns = 'auto';
         let holidays = {};
-        let lastHolidayDate = null;
         let dayFontSize = 0.8;
         let holidayFontSize = 0.65;
         let pinnedTooltip = { element: null, isPinned: false };
-        // 日期計算機相關狀態
         let calcStartDate = null;
         let calcEndDate = null;
         let longPressTimer = null;
@@ -188,25 +192,20 @@
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const todayBtn = document.getElementById('today-btn');
-        const loader = document.getElementById('loader');
         const notification = document.getElementById('notification');
         const tooltip = document.getElementById('tooltip');
-        // 設定面板元素
         const settingsBtn = document.getElementById('settings-btn');
         const settingsModal = document.getElementById('settings-modal');
         const closeSettingsBtn = document.getElementById('close-settings-btn');
-        const refreshBtn = document.getElementById('refresh-holidays');
-        const lastUpdatedInfo = document.getElementById('last-updated-info');
         const viewSwitcher = document.getElementById('view-switcher');
         const columnsOptions = document.getElementById('columns-options');
         const confirmSettingsBtn = document.getElementById('confirm-settings-btn');
         const dayFontSizeSlider = document.getElementById('day-font-size-slider');
         const holidayFontSizeSlider = document.getElementById('holiday-font-size-slider');
-        // 計算機顯示元素
         const daysDiffDisplay = document.getElementById('days-diff-display');
-        // 右鍵選單元素
         const dateContextMenu = document.getElementById('date-context-menu');
         const contextMenuInfo = document.getElementById('context-menu-info');
+        const dataRangeInfo = document.getElementById('data-range-info');
 
         // --- 核心輔助函式 ---
         
@@ -225,48 +224,15 @@
             }, 3000);
         }
 
-        async function fetchHolidays(year) {
-            const lang = 'tc'; // 固定使用繁體中文
-            if (holidays[year] && holidays[lang]) { return holidays[year][lang]; }
-            loader.classList.remove('hidden');
-            const apiUrl = `https://www.1823.gov.hk/common/ical/${lang}.json`;
-            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
-            try {
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const data = await response.json();
-                const yearHolidays = {};
-                let maxDateInFile = new Date(0);
-                if (data.vcalendar && data.vcalendar[0] && data.vcalendar[0].vevent) {
-                    data.vcalendar[0].vevent.forEach(event => {
-                        if (event.dtstart && event.dtstart[0]) {
-                            const dateStr = `${event.dtstart[0].substring(0, 4)}-${event.dtstart[0].substring(4, 6)}-${event.dtstart[0].substring(6, 8)}`;
-                            const eventDate = new Date(dateStr);
-                            if (eventDate.getFullYear() === year) { yearHolidays[dateStr] = event.summary; }
-                            if (eventDate > maxDateInFile) { maxDateInFile = eventDate; }
-                        }
-                    });
-                }
-                if (maxDateInFile > new Date(0)) { lastHolidayDate = maxDateInFile; }
-                if (!holidays[year]) holidays[year] = {};
-                holidays[year][lang] = yearHolidays;
-                updateLastUpdatedInfo();
-                return yearHolidays;
-            } catch (error) {
-                console.error('Failed to fetch holidays:', error);
-                showNotification('無法獲取假期資料，請稍後再試。');
-                return {};
-            } finally {
-                loader.classList.add('hidden');
-            }
-        }
+        function loadHolidaysForYear(year) {
+            if (holidays[year]) { return; } 
 
-        function updateLastUpdatedInfo() {
-            if (lastHolidayDate) {
-                const options = { year: 'numeric', month: 'long', day: 'numeric' };
-                lastUpdatedInfo.textContent = '記錄中最後假期為：' + ' ' + lastHolidayDate.toLocaleDateString('zh-HK', options);
+            const yearData = HOLIDAY_DATA_SOURCE.find(item => item.year === year);
+
+            if (yearData) {
+                holidays[year] = { 'tc': yearData.data };
             } else {
-                lastUpdatedInfo.textContent = '尚未載入假期資料。';
+                holidays[year] = { 'tc': {} }; // 建立空物件以避免錯誤
             }
         }
 
@@ -277,7 +243,6 @@
             return 'full';
         }
 
-        // *** 新增: 捲動到當前月份的函式
         function scrollToCurrentMonth() {
             const now = new Date();
             const year = now.getFullYear();
@@ -286,32 +251,30 @@
             const targetElement = document.getElementById(targetId);
             
             if (targetElement) {
-                // 使用 setTimeout 確保元素已完全渲染
                 setTimeout(() => {
                     targetElement.scrollIntoView({
                         behavior: 'smooth',
                         block: 'center',
                         inline: 'center'
                     });
-                    // 增加短暫的高亮效果以提示使用者
                     targetElement.classList.add('border-4', 'border-blue-400', 'rounded-lg', 'transition-all', 'duration-1000');
                     setTimeout(() => {
                          targetElement.classList.remove('border-4', 'border-blue-400', 'rounded-lg');
-                    }, 2500); // 2.5秒後移除高亮
+                    }, 2500);
                 }, 150);
             }
         }
 
         // --- 核心渲染函式 ---
 
-        async function render() {
+        function render() {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
             
             updateUIText();
-            await fetchHolidays(year);
-            if (currentView === 'year' && holidays[year+1] === undefined) {
-                await fetchHolidays(year + 1); 
+            loadHolidaysForYear(year);
+            if (currentView === 'year') {
+                loadHolidaysForYear(year + 1);
             }
             
             calendarContainer.innerHTML = '';
@@ -356,7 +319,7 @@
         function createMonthContainer(year, month) {
             const holidayData = (holidays[year] && holidays[year]['tc']) ? holidays[year]['tc'] : {};
             const container = document.createElement('div');
-            container.id = `month-container-${year}-${month}`; // *** 新增: 為月份容器加上 ID
+            container.id = `month-container-${year}-${month}`;
             const title = document.createElement('h3');
             title.className = 'text-xl font-semibold text-center mb-2 bg-gray-100 p-2 rounded-t-lg';
             title.textContent = `${year} ${['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'][month]}`;
@@ -385,7 +348,6 @@
                 grid.appendChild(createDayCell(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), i), true, {}, displayMode));
             }
 
-            // --- 假期列表 ---
             const holidayListContainer = document.createElement('div');
             holidayListContainer.className = 'mt-4 pt-3 border-t text-sm space-y-1 h-28 min-h-28 overflow-y-auto';
             let hasHolidays = false;
@@ -417,7 +379,7 @@
             const year = date.getFullYear();
             const month = date.getMonth() + 1;
             const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            dayCell.dataset.date = dateString; // 為每個格子添加日期數據
+            dayCell.dataset.date = dateString;
 
             const isToday = date.toDateString() === new Date().toDateString();
             const isSunday = date.getDay() === 0;
@@ -434,7 +396,6 @@
                 cellClasses += isSunday ? ' sunday' : ' holiday';
             }
 
-            // 計算機高亮邏輯
             if (calcStartDate && calcEndDate) {
                 const currentDate = new Date(dateString);
                 const start = new Date(calcStartDate);
@@ -446,7 +407,7 @@
                 cellClasses += ' calc-in-range';
             }
             
-            if (isToday) cellClasses += ' today'; // 確保 today 樣式優先級
+            if (isToday) cellClasses += ' today';
 
             dayCell.className = cellClasses;
 
@@ -477,7 +438,6 @@
             return dayCell;
         }
         
-        // --- 輕量級更新函式 (用於提升效能) ---
         function updateDateHighlights() {
             document.querySelectorAll('.calendar-day').forEach(cell => {
                 cell.classList.remove('calc-in-range');
@@ -519,8 +479,8 @@
         function updateUIText() {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
-            const quarterNames = ['第一季', '第二季', '第三季', '第四季']; // 新增季度中文名稱陣列
-            document.title = '農曆及香港假期日曆';
+            const quarterNames = ['第一季', '第二季', '第三季', '第四季'];
+            document.title = '農曆及香港假期日曆 (離線版)';
             switch (currentView) {
                 case 'year': 
                     calendarTitle.textContent = year; 
@@ -532,7 +492,6 @@
                     calendarTitle.textContent = `${year} ${['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'][month]}`; 
                     break;
             }
-            updateLastUpdatedInfo();
         }
         
         function handleNav(direction) {
@@ -585,14 +544,18 @@
         // --- 事件監聽器 ---
         prevBtn.addEventListener('click', () => handleNav(-1));
         nextBtn.addEventListener('click', () => handleNav(1));
-        // *** 修改: "今天" 按鈕的事件監聽器
-        todayBtn.addEventListener('click', async () => { 
+        todayBtn.addEventListener('click', () => { 
             currentDate = new Date(); 
-            await render();
+            render();
             scrollToCurrentMonth();
         });
         
-        settingsBtn.addEventListener('click', () => openModal(settingsModal));
+        settingsBtn.addEventListener('click', () => {
+             const firstYear = HOLIDAY_DATA_SOURCE[0].year;
+             const lastYear = HOLIDAY_DATA_SOURCE[HOLIDAY_DATA_SOURCE.length - 1].year;
+             dataRangeInfo.textContent = `已內建 ${firstYear} - ${lastYear} 年假期資料`;
+             openModal(settingsModal);
+        });
         closeSettingsBtn.addEventListener('click', () => closeModal(settingsModal));
         confirmSettingsBtn.addEventListener('click', () => closeModal(settingsModal));
         settingsModal.addEventListener('click', (e) => {
@@ -611,13 +574,6 @@
                 render();
             }
         });
-        refreshBtn.addEventListener('click', async () => {
-            const year = currentDate.getFullYear();
-            if (holidays[year]) delete holidays[year];
-            lastHolidayDate = null;
-            await render();
-            showNotification('假期資料已更新！', false);
-        });
         
         dayFontSizeSlider.addEventListener('input', (e) => {
             dayFontSize = e.target.value;
@@ -629,7 +585,6 @@
             document.documentElement.style.setProperty('--holiday-font-size', `${holidayFontSize}rem`);
         });
 
-        // 右鍵選單 & 長按
         calendarContainer.addEventListener('contextmenu', showContextMenu);
         calendarContainer.addEventListener('touchstart', (e) => {
             longPressTimer = setTimeout(() => {
@@ -653,7 +608,6 @@
                 calcEndDate = null;
             }
             hideContextMenu();
-            // 使用輕量級更新，避免重新渲染整個日曆
             updateDateHighlights();
             updateDaysDiffDisplay();
         });
@@ -664,7 +618,6 @@
             }
         });
         
-
         calendarContainer.addEventListener('mouseover', (e) => {
             const cell = e.target.closest('[data-tooltip]');
             if (cell && !pinnedTooltip.isPinned) {
@@ -707,10 +660,8 @@
             }
         });
 
-
         // --- 初始化 ---
-        // *** 修改: 初始化函式
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             viewSwitcher.value = currentView;
             document.querySelector(`#columns-options input[value="${forcedColumns}"]`).checked = true;
             document.querySelector(`#columns-options input[value="${forcedColumns}"]`).parentElement.classList.add('bg-blue-500', 'text-white');
@@ -719,7 +670,7 @@
             document.documentElement.style.setProperty('--day-font-size', `${dayFontSize}rem`);
             document.documentElement.style.setProperty('--holiday-font-size', `${holidayFontSize}rem`);
             
-            await render();
+            render();
             scrollToCurrentMonth();
         });
 
