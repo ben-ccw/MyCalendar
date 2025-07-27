@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>農曆及香港假期日曆</title>
+    
+    <!-- 引入 Tailwind CSS 以實現現代化及響應式設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 Lunar-Calendar 庫用於農曆轉換 -->
+    <script src="https://unpkg.com/chinese-lunar@1.1.0/dist/lunar.js"></script>
+
+    <style>
+        /* 使用 CSS 變數來動態控制字體大小 */
+        :root {
+            --day-font-size: 0.8rem;
+            --holiday-font-size: 0.65rem;
+        }
+
+        /* 自訂樣式，確保日曆外觀優美 */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 2px;
+        }
+        .calendar-day {
+            aspect-ratio: 1 / 1; 
+            transition: all 0.3s ease;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .calendar-day:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .day-number {
+            font-size: var(--day-font-size); /* 應用日子文字大小變數 */
+        }
+        .holiday, .sunday { background-color: #fef2f2; border-color: #fca5a5; }
+        .holiday .holiday-name { 
+            color: #dc2626; 
+            word-break: break-word; 
+            font-size: var(--holiday-font-size); /* 應用假期文字大小變數 */
+            line-height: 1.2;
+        }
+        .today { border: 2px solid #3b82f6 !important; background-color: #eff6ff !important; }
+        .other-month { color: #9ca3af; background-color: #f9fafb; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #notification, #tooltip { transition: opacity 0.3s, transform 0.3s; z-index: 9999; }
+        #calendar-container { display: grid; gap: 1.5rem; }
+        #settings-modal { transition: opacity 0.3s; }
+        #settings-modal > div { transition: transform 0.3s; }
+
+        /* 日期計算高亮樣式 */
+        .calc-start-date, .calc-end-date, .calc-in-range {
+            background-color: #e0e7ff !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+        
+        <!-- 頂部控制欄 -->
+        <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+            <div class="flex items-center gap-4">
+                <h1 id="calendar-title" class="text-2xl md:text-3xl font-bold text-gray-900"></h1>
+                <div id="loader" class="loader hidden"></div>
+            </div>
+            
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div id="days-diff-display" class="font-semibold text-purple-700 mr-2 text-sm"></div>
+                <button id="prev-btn" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm">&lt;</button>
+                <button id="next-btn" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm">&gt;</button>
+                <button id="today-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm">今天</button>
+                <button id="settings-btn" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm">設定</button>
+            </div>
+        </div>
+
+        <div id="calendar-container"></div>
+    </div>
+    
+    <!-- 通知及提示框 -->
+    <div id="notification" class="hidden fixed top-5 right-5 bg-red-600 text-white py-2 px-4 rounded-lg shadow-lg text-sm opacity-0 transform translate-y-2"></div>
+    <div id="tooltip" class="hidden absolute bg-gray-800 text-white text-xs rounded-md py-1 px-2 shadow-lg"></div>
+    
+    <!-- 日期右鍵/長按選單 -->
+    <div id="date-context-menu" class="hidden absolute bg-white shadow-lg rounded-md p-2 z-[100] text-sm border w-48">
+        <div id="context-menu-info" class="mb-2 p-1 text-xs text-gray-500 space-y-1"></div>
+        <button data-action="set-start" class="block w-full text-left px-3 py-1.5 hover:bg-gray-100 rounded-md">設定為開始日</button>
+        <button data-action="set-end" class="block w-full text-left px-3 py-1.5 hover:bg-gray-100 rounded-md">設定為結束日</button>
+        <div class="border-t my-1"></div>
+        <button data-action="clear" class="block w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-md">清除選擇</button>
+    </div>
+
+
+    <!-- 設定面板 -->
+    <div id="settings-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 opacity-0">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md transform scale-95">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 class="text-xl font-bold">設定</h2>
+                <button id="close-settings-btn" class="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            
+            <div class="space-y-6">
+                <!-- 1. 檢視期間 -->
+                <div>
+                    <label for="view-switcher" class="block text-sm font-medium text-gray-700 mb-1">檢視期間</label>
+                    <select id="view-switcher" class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="month">月</option>
+                        <option value="quarter">季</option>
+                        <option value="year">年</option>
+                    </select>
+                </div>
+                <!-- 2. 強制橫向月份數 -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">強制橫向月份數</label>
+                    <div id="columns-options" class="mt-2 grid grid-cols-4 gap-2 rounded-lg bg-gray-100 p-1">
+                        <label class="text-center py-2 rounded-md cursor-pointer text-sm transition"><input type="radio" name="columns" value="auto" class="sr-only">自動</label>
+                        <label class="text-center py-2 rounded-md cursor-pointer text-sm transition"><input type="radio" name="columns" value="1" class="sr-only">1</label>
+                        <label class="text-center py-2 rounded-md cursor-pointer text-sm transition"><input type="radio" name="columns" value="3" class="sr-only">3</label>
+                        <label class="text-center py-2 rounded-md cursor-pointer text-sm transition"><input type="radio" name="columns" value="4" class="sr-only">4</label>
+                    </div>
+                </div>
+                <!-- 3. 日子文字大小 -->
+                <div>
+                    <label for="day-font-size-slider" class="block text-sm font-medium text-gray-700">日子文字大小</label>
+                    <input id="day-font-size-slider" type="range" min="0.6" max="1.2" step="0.05" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+                 <!-- 4. 假期文字大小 -->
+                <div>
+                    <label for="holiday-font-size-slider" class="block text-sm font-medium text-gray-700">假期文字大小 (格子內)</label>
+                    <input id="holiday-font-size-slider" type="range" min="0.5" max="1.0" step="0.05" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <div class="mt-8 pt-4 border-t">
+                <div class="flex justify-between items-center text-xs text-gray-500 mb-4">
+                    <span id="last-updated-info"></span>
+                    <button id="refresh-holidays" class="font-medium text-blue-600 hover:text-blue-800 hover:underline">更新</button>
+                </div>
+                <button id="confirm-settings-btn" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">確定</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- 全域狀態和設定 ---
+        let currentDate = new Date();
+        let currentView = 'year'; // *** 修改: 預設檢視改為 '年'
+        let forcedColumns = 'auto';
+        let holidays = {};
+        let lastHolidayDate = null;
+        let dayFontSize = 0.8;
+        let holidayFontSize = 0.65;
+        let pinnedTooltip = { element: null, isPinned: false };
+        // 日期計算機相關狀態
+        let calcStartDate = null;
+        let calcEndDate = null;
+        let longPressTimer = null;
+        let contextMenuTargetDate = null;
+
+        // --- DOM 元素 ---
+        const calendarTitle = document.getElementById('calendar-title');
+        const calendarContainer = document.getElementById('calendar-container');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const todayBtn = document.getElementById('today-btn');
+        const loader = document.getElementById('loader');
+        const notification = document.getElementById('notification');
+        const tooltip = document.getElementById('tooltip');
+        // 設定面板元素
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsModal = document.getElementById('settings-modal');
+        const closeSettingsBtn = document.getElementById('close-settings-btn');
+        const refreshBtn = document.getElementById('refresh-holidays');
+        const lastUpdatedInfo = document.getElementById('last-updated-info');
+        const viewSwitcher = document.getElementById('view-switcher');
+        const columnsOptions = document.getElementById('columns-options');
+        const confirmSettingsBtn = document.getElementById('confirm-settings-btn');
+        const dayFontSizeSlider = document.getElementById('day-font-size-slider');
+        const holidayFontSizeSlider = document.getElementById('holiday-font-size-slider');
+        // 計算機顯示元素
+        const daysDiffDisplay = document.getElementById('days-diff-display');
+        // 右鍵選單元素
+        const dateContextMenu = document.getElementById('date-context-menu');
+        const contextMenuInfo = document.getElementById('context-menu-info');
+
+        // --- 核心輔助函式 ---
+        
+        function showNotification(message, isError = true) {
+            notification.textContent = message;
+            notification.className = `fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg text-sm opacity-0 transform translate-y-2 ${isError ? 'bg-red-600' : 'bg-green-500'}`;
+            notification.classList.remove('hidden');
+            setTimeout(() => {
+                notification.classList.remove('opacity-0', 'translate-y-2');
+                notification.classList.add('opacity-100', 'translate-y-0');
+            }, 10);
+            setTimeout(() => {
+                notification.classList.remove('opacity-100', 'translate-y-0');
+                notification.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => notification.classList.add('hidden'), 500);
+            }, 3000);
+        }
+
+        async function fetchHolidays(year) {
+            const lang = 'tc'; // 固定使用繁體中文
+            if (holidays[year] && holidays[lang]) { return holidays[year][lang]; }
+            loader.classList.remove('hidden');
+            const apiUrl = `https://www.1823.gov.hk/common/ical/${lang}.json`;
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+            try {
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                const yearHolidays = {};
+                let maxDateInFile = new Date(0);
+                if (data.vcalendar && data.vcalendar[0] && data.vcalendar[0].vevent) {
+                    data.vcalendar[0].vevent.forEach(event => {
+                        if (event.dtstart && event.dtstart[0]) {
+                            const dateStr = `${event.dtstart[0].substring(0, 4)}-${event.dtstart[0].substring(4, 6)}-${event.dtstart[0].substring(6, 8)}`;
+                            const eventDate = new Date(dateStr);
+                            if (eventDate.getFullYear() === year) { yearHolidays[dateStr] = event.summary; }
+                            if (eventDate > maxDateInFile) { maxDateInFile = eventDate; }
+                        }
+                    });
+                }
+                if (maxDateInFile > new Date(0)) { lastHolidayDate = maxDateInFile; }
+                if (!holidays[year]) holidays[year] = {};
+                holidays[year][lang] = yearHolidays;
+                updateLastUpdatedInfo();
+                return yearHolidays;
+            } catch (error) {
+                console.error('Failed to fetch holidays:', error);
+                showNotification('無法獲取假期資料，請稍後再試。');
+                return {};
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        function updateLastUpdatedInfo() {
+            if (lastHolidayDate) {
+                const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                lastUpdatedInfo.textContent = '記錄中最後假期為：' + ' ' + lastHolidayDate.toLocaleDateString('zh-HK', options);
+            } else {
+                lastUpdatedInfo.textContent = '尚未載入假期資料。';
+            }
+        }
+
+        function analyzeHolidayDisplayMode() {
+            if (currentView !== 'month' || (forcedColumns !== 'auto' && forcedColumns !== '1')) {
+                return 'asterisk';
+            }
+            return 'full';
+        }
+
+        // *** 新增: 捲動到當前月份的函式
+        function scrollToCurrentMonth() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth();
+            const targetId = `month-container-${year}-${month}`;
+            const targetElement = document.getElementById(targetId);
+            
+            if (targetElement) {
+                // 使用 setTimeout 確保元素已完全渲染
+                setTimeout(() => {
+                    targetElement.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                        inline: 'center'
+                    });
+                    // 增加短暫的高亮效果以提示使用者
+                    targetElement.classList.add('border-4', 'border-blue-400', 'rounded-lg', 'transition-all', 'duration-1000');
+                    setTimeout(() => {
+                         targetElement.classList.remove('border-4', 'border-blue-400', 'rounded-lg');
+                    }, 2500); // 2.5秒後移除高亮
+                }, 150);
+            }
+        }
+
+        // --- 核心渲染函式 ---
+
+        async function render() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            
+            updateUIText();
+            await fetchHolidays(year);
+            if (currentView === 'year' && holidays[year+1] === undefined) {
+                await fetchHolidays(year + 1); 
+            }
+            
+            calendarContainer.innerHTML = '';
+
+            switch (currentView) {
+                case 'year': renderYearView(year); break;
+                case 'quarter': renderQuarterView(year, month); break;
+                default: renderMonthView(year, month); break;
+            }
+        }
+        
+        function getContainerGridClasses() {
+            if (forcedColumns !== 'auto') { return `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${forcedColumns} gap-4`; }
+            switch (currentView) {
+                case 'year': return 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
+                case 'quarter': return 'grid grid-cols-1 lg:grid-cols-3 gap-6';
+                default: return 'grid grid-cols-1';
+            }
+        }
+
+        function renderMonthView(year, month) {
+            calendarContainer.className = getContainerGridClasses();
+            calendarContainer.appendChild(createMonthContainer(year, month));
+        }
+
+        function renderQuarterView(year, month) {
+            calendarContainer.className = getContainerGridClasses();
+            const startMonth = Math.floor(month / 3) * 3;
+            for (let i = 0; i < 3; i++) {
+                const date = new Date(year, startMonth + i, 1);
+                calendarContainer.appendChild(createMonthContainer(date.getFullYear(), date.getMonth()));
+            }
+        }
+
+        function renderYearView(year) {
+            calendarContainer.className = getContainerGridClasses();
+            for (let month = 0; month < 12; month++) {
+                calendarContainer.appendChild(createMonthContainer(year, month));
+            }
+        }
+
+        function createMonthContainer(year, month) {
+            const holidayData = (holidays[year] && holidays[year]['tc']) ? holidays[year]['tc'] : {};
+            const container = document.createElement('div');
+            container.id = `month-container-${year}-${month}`; // *** 新增: 為月份容器加上 ID
+            const title = document.createElement('h3');
+            title.className = 'text-xl font-semibold text-center mb-2 bg-gray-100 p-2 rounded-t-lg';
+            title.textContent = `${year} ${['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'][month]}`;
+
+            const weekdaysHeader = document.createElement('div');
+            weekdaysHeader.className = 'calendar-grid mb-1 text-center font-semibold text-gray-500 text-sm';
+            ['日', '一', '二', '三', '四', '五', '六'].forEach(day => { weekdaysHeader.innerHTML += `<div>${day}</div>`; });
+
+            const grid = document.createElement('div');
+            grid.className = 'calendar-grid';
+            
+            const displayMode = analyzeHolidayDisplayMode();
+
+            const firstDayOfMonth = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const prevMonth = new Date(year, month, 0);
+            for (let i = firstDayOfMonth - 1; i >= 0; i--) {
+                grid.appendChild(createDayCell(new Date(prevMonth.getFullYear(), prevMonth.getMonth(), prevMonth.getDate() - i), true, {}, displayMode));
+            }
+            for (let i = 1; i <= daysInMonth; i++) {
+                grid.appendChild(createDayCell(new Date(year, month, i), false, holidayData, displayMode));
+            }
+            const totalCells = firstDayOfMonth + daysInMonth;
+            const nextMonth = new Date(year, month + 1, 1);
+            for (let i = 1; i <= (totalCells > 35 ? 42 : 35) - totalCells; i++) {
+                grid.appendChild(createDayCell(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), i), true, {}, displayMode));
+            }
+
+            // --- 假期列表 ---
+            const holidayListContainer = document.createElement('div');
+            holidayListContainer.className = 'mt-4 pt-3 border-t text-sm space-y-1 h-28 min-h-28 overflow-y-auto';
+            let hasHolidays = false;
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const holidayName = holidayData[dateString];
+                if (holidayName) {
+                    hasHolidays = true;
+                    const holidayItem = document.createElement('div');
+                    holidayItem.className = 'flex justify-between items-center';
+                    holidayItem.innerHTML = `<span class="font-semibold text-red-600 w-16">${month + 1}月${day}日</span><span class="text-red-600 text-right flex-1">${holidayName}</span>`;
+                    holidayListContainer.appendChild(holidayItem);
+                }
+            }
+            if (!hasHolidays) {
+                const noHolidayItem = document.createElement('div');
+                noHolidayItem.className = 'text-sm text-gray-500 text-center py-2';
+                noHolidayItem.textContent = '本月沒有公眾假期';
+                holidayListContainer.appendChild(noHolidayItem);
+            }
+
+            container.append(title, weekdaysHeader, grid, holidayListContainer);
+            return container;
+        }
+
+        function createDayCell(date, isOtherMonth, holidayData, displayMode) {
+            const dayCell = document.createElement('div');
+            const day = date.getDate();
+            const year = date.getFullYear();
+            const month = date.getMonth() + 1;
+            const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            dayCell.dataset.date = dateString; // 為每個格子添加日期數據
+
+            const isToday = date.toDateString() === new Date().toDateString();
+            const isSunday = date.getDay() === 0;
+            let lunarText = '';
+            if (typeof lunar !== 'undefined') {
+                const d = lunar.solarToLunar(year, month, day);
+                lunarText = d.lunarFestival || d.solarTerm || (d.day === 1 ? `${d.monthInChinese}月` : d.dayInChinese);
+            }
+            let cellClasses = 'calendar-day border rounded-md p-1 flex flex-col';
+            if (isOtherMonth) cellClasses += ' other-month';
+            
+            const holidayName = holidayData[dateString];
+            if (!isOtherMonth && (holidayName || isSunday)) {
+                cellClasses += isSunday ? ' sunday' : ' holiday';
+            }
+
+            // 計算機高亮邏輯
+            if (calcStartDate && calcEndDate) {
+                const currentDate = new Date(dateString);
+                const start = new Date(calcStartDate);
+                const end = new Date(calcEndDate);
+                if (currentDate >= start && currentDate <= end) {
+                    cellClasses += ' calc-in-range';
+                }
+            } else if (calcStartDate && dateString === calcStartDate) {
+                cellClasses += ' calc-in-range';
+            }
+            
+            if (isToday) cellClasses += ' today'; // 確保 today 樣式優先級
+
+            dayCell.className = cellClasses;
+
+            let dayNumberClasses = 'day-number font-bold';
+            if (!isOtherMonth) {
+                if (holidayName) {
+                    dayNumberClasses += ' text-red-600';
+                } else {
+                    dayNumberClasses += ' text-gray-900';
+                }
+            }
+
+            let holidayDisplayHtml = '';
+            if (holidayName && !isOtherMonth) {
+                dayCell.dataset.tooltip = holidayName;
+                if (displayMode === 'asterisk') {
+                    holidayDisplayHtml = `<div class="holiday-name font-semibold mt-auto pt-1 text-center">*</div>`;
+                } else {
+                    holidayDisplayHtml = `<div class="holiday-name font-semibold mt-auto pt-1">${holidayName}</div>`;
+                }
+            }
+            dayCell.innerHTML = `
+                <div class="${dayNumberClasses}">${day}</div>
+                <div class="text-xs text-gray-500 truncate">${lunarText || '&nbsp;'}</div>
+                <div class="flex-grow"></div>
+                ${holidayDisplayHtml}
+            `;
+            return dayCell;
+        }
+        
+        // --- 輕量級更新函式 (用於提升效能) ---
+        function updateDateHighlights() {
+            document.querySelectorAll('.calendar-day').forEach(cell => {
+                cell.classList.remove('calc-in-range');
+                const dateString = cell.dataset.date;
+                if (!dateString) return;
+
+                const date = new Date(dateString);
+                if (calcStartDate && calcEndDate) {
+                    const start = new Date(calcStartDate);
+                    const end = new Date(calcEndDate);
+                    if (date >= start && date <= end) {
+                        cell.classList.add('calc-in-range');
+                    }
+                } else if (calcStartDate && dateString === calcStartDate) {
+                    cell.classList.add('calc-in-range');
+                }
+            });
+        }
+
+        function updateDaysDiffDisplay() {
+            if (calcStartDate && calcEndDate) {
+                const start = new Date(calcStartDate);
+                const end = new Date(calcEndDate);
+
+                if (end < start) {
+                    daysDiffDisplay.textContent = '結束日較早';
+                    daysDiffDisplay.classList.add('text-red-500');
+                    return;
+                }
+                const diffTime = Math.abs(end - start);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                daysDiffDisplay.classList.remove('text-red-500');
+                daysDiffDisplay.textContent = `相差 ${diffDays} 天`;
+            } else {
+                daysDiffDisplay.textContent = '';
+            }
+        }
+
+        function updateUIText() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const quarterNames = ['第一季', '第二季', '第三季', '第四季']; // 新增季度中文名稱陣列
+            document.title = '農曆及香港假期日曆';
+            switch (currentView) {
+                case 'year': 
+                    calendarTitle.textContent = year; 
+                    break;
+                case 'quarter': 
+                    calendarTitle.textContent = `${year} ${quarterNames[Math.floor(month / 3)]}`; 
+                    break;
+                default: 
+                    calendarTitle.textContent = `${year} ${['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'][month]}`; 
+                    break;
+            }
+            updateLastUpdatedInfo();
+        }
+        
+        function handleNav(direction) {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            switch (currentView) {
+                case 'year': currentDate.setFullYear(year + direction); break;
+                case 'quarter': currentDate.setMonth(month + (3 * direction)); break;
+                default: currentDate.setMonth(month + direction); break;
+            }
+            render();
+        }
+
+        function openModal(modal) {
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modal.querySelector('div').classList.remove('scale-95');
+            }, 10);
+        }
+        function closeModal(modal) {
+            modal.classList.add('opacity-0');
+            modal.querySelector('div').classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+        
+        function showContextMenu(e) {
+            e.preventDefault();
+            const cell = e.target.closest('.calendar-day');
+            if (!cell || cell.classList.contains('other-month')) return;
+
+            contextMenuTargetDate = cell.dataset.date;
+            
+            let infoHtml = `<div><b>選擇日期:</b> ${contextMenuTargetDate}</div>`;
+            if(calcStartDate) infoHtml += `<div>開始日: ${calcStartDate}</div>`;
+            if(calcEndDate) infoHtml += `<div>結束日: ${calcEndDate}</div>`;
+            contextMenuInfo.innerHTML = infoHtml;
+
+            dateContextMenu.style.left = `${e.pageX}px`;
+            dateContextMenu.style.top = `${e.pageY}px`;
+            dateContextMenu.classList.remove('hidden');
+        }
+
+        function hideContextMenu() {
+            dateContextMenu.classList.add('hidden');
+        }
+
+        // --- 事件監聽器 ---
+        prevBtn.addEventListener('click', () => handleNav(-1));
+        nextBtn.addEventListener('click', () => handleNav(1));
+        // *** 修改: "今天" 按鈕的事件監聽器
+        todayBtn.addEventListener('click', async () => { 
+            currentDate = new Date(); 
+            await render();
+            scrollToCurrentMonth();
+        });
+        
+        settingsBtn.addEventListener('click', () => openModal(settingsModal));
+        closeSettingsBtn.addEventListener('click', () => closeModal(settingsModal));
+        confirmSettingsBtn.addEventListener('click', () => closeModal(settingsModal));
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) closeModal(settingsModal);
+        });
+
+        viewSwitcher.addEventListener('change', (e) => { currentView = e.target.value; render(); });
+        columnsOptions.addEventListener('change', (e) => {
+            if (e.target.name === 'columns') {
+                forcedColumns = e.target.value;
+                document.querySelectorAll('#columns-options label').forEach(label => {
+                    label.classList.remove('bg-blue-500', 'text-white');
+                    label.classList.add('hover:bg-gray-200');
+                });
+                e.target.parentElement.classList.add('bg-blue-500', 'text-white');
+                render();
+            }
+        });
+        refreshBtn.addEventListener('click', async () => {
+            const year = currentDate.getFullYear();
+            if (holidays[year]) delete holidays[year];
+            lastHolidayDate = null;
+            await render();
+            showNotification('假期資料已更新！', false);
+        });
+        
+        dayFontSizeSlider.addEventListener('input', (e) => {
+            dayFontSize = e.target.value;
+            document.documentElement.style.setProperty('--day-font-size', `${dayFontSize}rem`);
+        });
+
+        holidayFontSizeSlider.addEventListener('input', (e) => {
+            holidayFontSize = e.target.value;
+            document.documentElement.style.setProperty('--holiday-font-size', `${holidayFontSize}rem`);
+        });
+
+        // 右鍵選單 & 長按
+        calendarContainer.addEventListener('contextmenu', showContextMenu);
+        calendarContainer.addEventListener('touchstart', (e) => {
+            longPressTimer = setTimeout(() => {
+                showContextMenu({
+                    preventDefault: () => {},
+                    target: e.target,
+                    pageX: e.touches[0].pageX,
+                    pageY: e.touches[0].pageY
+                });
+            }, 500);
+        });
+        calendarContainer.addEventListener('touchend', () => clearTimeout(longPressTimer));
+        calendarContainer.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+        
+        dateContextMenu.addEventListener('click', (e) => {
+            const action = e.target.dataset.action;
+            if (action === 'set-start') calcStartDate = contextMenuTargetDate;
+            if (action === 'set-end') calcEndDate = contextMenuTargetDate;
+            if (action === 'clear') {
+                calcStartDate = null;
+                calcEndDate = null;
+            }
+            hideContextMenu();
+            // 使用輕量級更新，避免重新渲染整個日曆
+            updateDateHighlights();
+            updateDaysDiffDisplay();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!dateContextMenu.contains(e.target)) {
+                hideContextMenu();
+            }
+        });
+        
+
+        calendarContainer.addEventListener('mouseover', (e) => {
+            const cell = e.target.closest('[data-tooltip]');
+            if (cell && !pinnedTooltip.isPinned) {
+                tooltip.textContent = cell.dataset.tooltip;
+                tooltip.classList.remove('hidden');
+                const rect = cell.getBoundingClientRect();
+                tooltip.style.left = `${rect.left + window.scrollX}px`;
+                tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
+            }
+        });
+        calendarContainer.addEventListener('mouseout', (e) => {
+            const cell = e.target.closest('[data-tooltip]');
+            if (cell && !pinnedTooltip.isPinned) {
+                tooltip.classList.add('hidden');
+            }
+        });
+        calendarContainer.addEventListener('click', (e) => {
+            const cell = e.target.closest('[data-tooltip]');
+            if (!cell) {
+                if (pinnedTooltip.isPinned) {
+                    pinnedTooltip.isPinned = false;
+                    pinnedTooltip.element = null;
+                    tooltip.classList.add('hidden');
+                }
+                return;
+            }
+
+            if (pinnedTooltip.isPinned && pinnedTooltip.element === cell) {
+                pinnedTooltip.isPinned = false;
+                pinnedTooltip.element = null;
+                tooltip.classList.add('hidden');
+            } else { 
+                pinnedTooltip.isPinned = true;
+                pinnedTooltip.element = cell;
+                tooltip.textContent = cell.dataset.tooltip;
+                tooltip.classList.remove('hidden');
+                const rect = cell.getBoundingClientRect();
+                tooltip.style.left = `${rect.left + window.scrollX}px`;
+                tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
+            }
+        });
+
+
+        // --- 初始化 ---
+        // *** 修改: 初始化函式
+        document.addEventListener('DOMContentLoaded', async () => {
+            viewSwitcher.value = currentView;
+            document.querySelector(`#columns-options input[value="${forcedColumns}"]`).checked = true;
+            document.querySelector(`#columns-options input[value="${forcedColumns}"]`).parentElement.classList.add('bg-blue-500', 'text-white');
+            dayFontSizeSlider.value = dayFontSize;
+            holidayFontSizeSlider.value = holidayFontSize;
+            document.documentElement.style.setProperty('--day-font-size', `${dayFontSize}rem`);
+            document.documentElement.style.setProperty('--holiday-font-size', `${holidayFontSize}rem`);
+            
+            await render();
+            scrollToCurrentMonth();
+        });
+
+    </script>
+</body>
+</html>
